@@ -36,7 +36,7 @@ class MainWindow(ctk.CTk):
 
         self.title(WINDOW_TITLE)
         self.attributes("-topmost", True)
-        x, y = self._cfg.window_position
+        x, y = self._clamp_to_screen(*self._cfg.window_position)
         self.geometry(f"{WINDOW_SIZE[0]}x{WINDOW_SIZE[1]}+{x}+{y}")
         self.minsize(*WINDOW_SIZE)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -96,6 +96,15 @@ class MainWindow(ctk.CTk):
         self._toggle_button.pack(fill="x")
 
         self._schedule_poll()
+
+    def _clamp_to_screen(self, x: int, y: int) -> tuple[int, int]:
+        """Keep the window origin inside the primary screen so a user who moves it
+        onto a monitor that later goes away can still find it on relaunch."""
+        self.update_idletasks()
+        w, h = WINDOW_SIZE
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        return max(0, min(x, sw - w)), max(0, min(y, sh - h))
 
     def _toggle(self) -> None:
         self._enabled = not self._enabled

@@ -73,3 +73,15 @@ def test_uninstall_removes_only_our_hook(settings_file):
 def test_uninstall_missing_file_is_noop(tmp_path):
     uninstall_hook(tmp_path / "nonexistent.json", "handsfree-claude-hook")
     # No exception = pass
+
+
+def test_install_raises_clear_error_on_corrupt_settings(settings_file):
+    settings_file.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        install_hook(settings_file, "handsfree-claude-hook")
+
+
+def test_uninstall_raises_clear_error_on_corrupt_settings(settings_file):
+    settings_file.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        uninstall_hook(settings_file, "handsfree-claude-hook")

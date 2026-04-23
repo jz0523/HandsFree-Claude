@@ -11,7 +11,13 @@ TIMEOUT_SECONDS = 15
 def _load(path: Path) -> dict:
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Claude Code settings at {path} is not valid JSON: {exc}. "
+            "Fix it by hand before running this command."
+        ) from exc
 
 
 def _save(path: Path, data: dict) -> None:

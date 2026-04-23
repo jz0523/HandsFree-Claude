@@ -1,8 +1,6 @@
 # tests/test_hook.py
 import io
 import json
-import sys
-from pathlib import Path
 
 import pytest
 
