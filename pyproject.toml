@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "handsfree-claude"
+version = "0.1.0"
+description = "Auto-approve Claude Code permission prompts while a toggle is on; plays a sound on session completion."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "jz0523", email = "jimmyzhong523@gmail.com" }]
+dependencies = [
+  "customtkinter>=5.2",
+  "pillow>=10.0",
+  "psutil>=5.9",
+  "playsound3>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-mock>=3"]
+
+[project.scripts]
+handsfree-claude = "handsfree_claude.cli:main"
+handsfree-claude-hook = "handsfree_claude.hook:main"
+
+[project.urls]
+Homepage = "https://github.com/jz0523/HandsFree-Claude"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/handsfree_claude"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/handsfree_claude/assets" = "handsfree_claude/assets"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
