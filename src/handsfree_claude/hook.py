@@ -1,21 +1,35 @@
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
-from handsfree_claude import audio, config as config_mod, state as state_mod
+from handsfree_claude import audio, config as config_mod, paths, state as state_mod
+
+
+def _debug(message: str) -> None:
+    try:
+        paths.ensure_dirs()
+        log = paths.base_dir() / "logs" / "hook.log"
+        stamp = _dt.datetime.now().isoformat(timespec="seconds")
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"{stamp} {message}\n")
+    except Exception:
+        pass
 
 
 def _read_event() -> Optional[dict]:
     try:
         raw = sys.stdin.read()
+        _debug(f"stdin raw ({len(raw)} chars): {raw[:500]!r}")
         if not raw.strip():
             return None
         return json.loads(raw)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        _debug(f"_read_event failed: {exc}")
         return None
 
 
@@ -71,12 +85,24 @@ def _spawn_audio_subprocess(sound_path: Path) -> None:
 def main() -> int:
     event = _read_event()
     if not isinstance(event, dict):
+        _debug("no/invalid event -> exit 0")
         return 0
     name = event.get("hook_event_name")
+    s = state_mod.read()
+    active = state_mod.is_active(s)
+    _debug(
+        f"event={name!r} state(enabled={s.enabled}, pid={s.pid}) active={active} "
+        f"keys={list(event.keys())}"
+    )
     if name == "PreToolUse":
-        return _handle_pretooluse()
+        rc = _handle_pretooluse()
+        _debug(f"PreToolUse handled, rc={rc}")
+        return rc
     if name == "Stop":
-        return _handle_stop()
+        rc = _handle_stop()
+        _debug(f"Stop handled, rc={rc}")
+        return rc
+    _debug(f"unknown event {name!r} -> exit 0")
     return 0
 
 

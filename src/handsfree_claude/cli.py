@@ -18,9 +18,19 @@ def _resolve_hook_command() -> str:
 
     Prefer the absolute path to the installed console script so that Claude
     Code finds it regardless of the PATH its process inherits (on Windows,
-    user-site Scripts directories are often not on system PATH)."""
+    user-site Scripts directories are often not on system PATH).
+
+    On Windows, Claude Code runs the hook through bash, which treats
+    backslashes as escape characters — so a path like
+    C:\\Users\\x\\Scripts\\foo.EXE arrives at the exec call as
+    C:Usersx Scriptsfoo.EXE and fails. Normalize to forward slashes,
+    which bash and the Windows loader both handle correctly."""
     resolved = shutil.which(HOOK_NAME)
-    return resolved if resolved else HOOK_NAME
+    if not resolved:
+        return HOOK_NAME
+    if sys.platform == "win32":
+        return resolved.replace("\\", "/")
+    return resolved
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
