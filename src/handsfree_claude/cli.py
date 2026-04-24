@@ -4,6 +4,7 @@ import argparse
 import json
 import shutil
 import sys
+from pathlib import Path
 from typing import Optional, Sequence
 
 from handsfree_claude import paths, settings_installer, state as state_mod
@@ -11,6 +12,7 @@ from handsfree_claude import paths, settings_installer, state as state_mod
 HOOK_NAME = "handsfree-claude-hook"
 HOOK_EVENTS = ("PreToolUse", "Stop")
 HOOK_TIMEOUT_SECONDS = 5
+CONFLICTING_STEMS = ("oi-claude-hook",)  # prior tools whose hooks we warn about
 
 
 def _resolve_hook_command() -> str:
@@ -76,6 +78,13 @@ def _launch_ui() -> None:
 def _cmd_install_hooks() -> int:
     settings_path = paths.claude_settings_path()
     command = _resolve_hook_command()
+    # Scrub any prior handsfree-claude-hook entries (old path forms, bare name,
+    # path variants from a different Python environment) so we don't stack up
+    # duplicates when the user re-runs install-hooks or reinstalls the package.
+    removed = _scrub_hooks_by_stem(settings_path, HOOK_NAME)
+    # Warn about known-conflicting hooks (e.g., Oi-Claude) but don't auto-remove;
+    # the user may have installed them intentionally.
+    conflicts = _find_hooks_by_stems(settings_path, CONFLICTING_STEMS)
     for event in HOOK_EVENTS:
         settings_installer.install_hook(
             settings_path,
@@ -84,20 +93,92 @@ def _cmd_install_hooks() -> int:
             timeout_seconds=HOOK_TIMEOUT_SECONDS,
         )
     print(f"Installed hooks in {settings_path} (command: {command})")
+    if removed:
+        print(f"Scrubbed {removed} stale handsfree-claude-hook entr"
+              f"{'y' if removed == 1 else 'ies'}.")
+    if conflicts:
+        print(
+            "Warning: detected hook(s) from a prior tool that may conflict "
+            "(they run alongside ours and can cause unexpected prompts):"
+        )
+        for event, cmd in conflicts:
+            print(f"  - {event}: {cmd}")
+        print(
+            "If you no longer use that tool, remove these entries from\n"
+            f"  {settings_path}\nor run its uninstaller."
+        )
     return 0
 
 
 def _cmd_uninstall_hooks() -> int:
     settings_path = paths.claude_settings_path()
-    # Remove both the bare name and the absolute-path form, so this works
-    # whether hooks were installed by an older version of us or the current one.
-    for command in {HOOK_NAME, _resolve_hook_command()}:
-        for event in HOOK_EVENTS:
-            settings_installer.uninstall_hook(
-                settings_path, command, event_name=event
-            )
-    print(f"Removed hooks from {settings_path}")
+    removed = _scrub_hooks_by_stem(settings_path, HOOK_NAME)
+    print(
+        f"Removed {removed} hook entr{'y' if removed == 1 else 'ies'} "
+        f"from {settings_path}"
+    )
     return 0
+
+
+def _scrub_hooks_by_stem(settings_path, stem: str) -> int:
+    """Remove every hook whose command's filename stem matches `stem`.
+
+    Returns the number of entries removed. A safe noop if the settings
+    file is missing or has no hooks section.
+    """
+    if not settings_path.exists():
+        return 0
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return 0
+    removed = 0
+    target = stem.lower()
+    for event, entries in list(hooks.items()):
+        new_entries = []
+        for entry in entries:
+            kept = []
+            for h in entry.get("hooks", []):
+                cmd = h.get("command") or ""
+                if Path(cmd).stem.lower() == target or cmd == stem:
+                    removed += 1
+                    continue
+                kept.append(h)
+            if kept:
+                new_entry = dict(entry)
+                new_entry["hooks"] = kept
+                new_entries.append(new_entry)
+        hooks[event] = new_entries
+    if removed:
+        settings_path.write_text(
+            json.dumps(data, indent=2), encoding="utf-8"
+        )
+    return removed
+
+
+def _find_hooks_by_stems(settings_path, stems) -> list[tuple[str, str]]:
+    """Return [(event_name, command), ...] for hooks matching any given stem."""
+    if not settings_path.exists():
+        return []
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+    targets = {s.lower() for s in stems}
+    out: list[tuple[str, str]] = []
+    for event, entries in hooks.items():
+        for entry in entries:
+            for h in entry.get("hooks", []):
+                cmd = h.get("command") or ""
+                if Path(cmd).stem.lower() in targets or cmd.lower() in targets:
+                    out.append((event, cmd))
+    return out
 
 
 def _cmd_status() -> int:
@@ -120,22 +201,13 @@ def _hooks_installed(settings_path) -> bool:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
+    target = HOOK_NAME.lower()
     for event in HOOK_EVENTS:
         entries = data.get("hooks", {}).get(event, [])
         commands = [h.get("command") or "" for e in entries for h in e.get("hooks", [])]
-        # Match either the bare name or any absolute path whose final component
-        # resolves to our hook (Windows adds a .exe suffix via the console-script shim).
-        if not any(_command_matches_hook(c) for c in commands):
+        if not any(Path(c).stem.lower() == target or c == HOOK_NAME for c in commands):
             return False
     return True
-
-
-def _command_matches_hook(command: str) -> bool:
-    if command == HOOK_NAME:
-        return True
-    from pathlib import Path as _Path
-    stem = _Path(command).stem.lower() if command else ""
-    return stem == HOOK_NAME
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -9,8 +10,16 @@ from typing import Optional
 
 from handsfree_claude import audio, config as config_mod, paths, state as state_mod
 
+_DEBUG_ENV_VAR = "HANDSFREE_CLAUDE_DEBUG"
+
+
+def _debug_enabled() -> bool:
+    return os.environ.get(_DEBUG_ENV_VAR, "").strip() not in ("", "0", "false", "False")
+
 
 def _debug(message: str) -> None:
+    if not _debug_enabled():
+        return
     try:
         paths.ensure_dirs()
         log = paths.base_dir() / "logs" / "hook.log"

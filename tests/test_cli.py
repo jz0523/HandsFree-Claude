@@ -99,3 +99,114 @@ def test_no_args_defaults_to_run(tmp_home, mocker):
     rc = cli_mod.main([])
     assert rc == 0
     assert ui_launch.call_count == 1
+
+
+def test_install_scrubs_stale_path_variants(tmp_home, capsys):
+    """A prior install with a different path form (backslash vs forward slash,
+    or bare vs absolute) must not leave a duplicate hook behind."""
+    from handsfree_claude import paths
+    # Pre-seed a settings file with a backslash-style absolute path.
+    stale = {
+        "hooks": {
+            "PreToolUse": [{"matcher": "*", "hooks": [
+                {"type": "command",
+                 "command": r"C:\old\path\handsfree-claude-hook.EXE",
+                 "timeout": 5}
+            ]}],
+            "Stop": [{"matcher": "*", "hooks": [
+                {"type": "command",
+                 "command": r"C:\old\path\handsfree-claude-hook.EXE",
+                 "timeout": 5}
+            ]}],
+        }
+    }
+    paths.claude_settings_path().write_text(json.dumps(stale), encoding="utf-8")
+    rc = cli_mod.main(["install-hooks"])
+    assert rc == 0
+    data = json.loads(paths.claude_settings_path().read_text(encoding="utf-8"))
+    for event in ("PreToolUse", "Stop"):
+        cmds = [h["command"] for e in data["hooks"][event] for h in e["hooks"]]
+        # Exactly one entry, and it's the fresh one (bare name in tests).
+        assert len(cmds) == 1
+        assert cmds[0] == "handsfree-claude-hook"
+    out = capsys.readouterr().out
+    assert "Scrubbed" in out
+
+
+def test_install_warns_about_conflicting_oi_claude_hook(tmp_home, capsys):
+    from handsfree_claude import paths
+    stale = {
+        "hooks": {
+            "PreToolUse": [{"matcher": "*", "hooks": [
+                {"type": "command", "command": "C:/x/oi-claude-hook.EXE", "timeout": 15}
+            ]}],
+        }
+    }
+    paths.claude_settings_path().write_text(json.dumps(stale), encoding="utf-8")
+    rc = cli_mod.main(["install-hooks"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "conflict" in out.lower()
+    assert "oi-claude-hook" in out.lower()
+    # Warning only — the conflicting hook is NOT auto-removed.
+    data = json.loads(paths.claude_settings_path().read_text(encoding="utf-8"))
+    all_cmds = [
+        h["command"]
+        for e in data["hooks"]["PreToolUse"]
+        for h in e["hooks"]
+    ]
+    assert any("oi-claude-hook" in c for c in all_cmds)
+    assert "handsfree-claude-hook" in all_cmds
+
+
+def test_uninstall_removes_entries_regardless_of_path_form(tmp_home, capsys):
+    """uninstall-hooks must clean up old path variants and bare-name entries,
+    not just whatever the current install produces."""
+    from handsfree_claude import paths
+    stale = {
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [
+                    {"type": "command", "command": "handsfree-claude-hook", "timeout": 5}
+                ]},
+                {"matcher": "*", "hooks": [
+                    {"type": "command",
+                     "command": r"C:\old\handsfree-claude-hook.EXE",
+                     "timeout": 5}
+                ]},
+                {"matcher": "*", "hooks": [
+                    {"type": "command",
+                     "command": "C:/other/handsfree-claude-hook.EXE",
+                     "timeout": 5}
+                ]},
+            ],
+            "Stop": [{"matcher": "*", "hooks": [
+                {"type": "command", "command": "handsfree-claude-hook", "timeout": 5}
+            ]}],
+        }
+    }
+    paths.claude_settings_path().write_text(json.dumps(stale), encoding="utf-8")
+    rc = cli_mod.main(["uninstall-hooks"])
+    assert rc == 0
+    data = json.loads(paths.claude_settings_path().read_text(encoding="utf-8"))
+    for event in ("PreToolUse", "Stop"):
+        cmds = [h["command"] for e in data["hooks"].get(event, []) for h in e["hooks"]]
+        assert not any("handsfree-claude-hook" in c for c in cmds)
+
+
+def test_uninstall_preserves_unrelated_hooks(tmp_home):
+    from handsfree_claude import paths
+    stale = {
+        "hooks": {
+            "PreToolUse": [{"matcher": "*", "hooks": [
+                {"type": "command", "command": "some-other-hook", "timeout": 5},
+                {"type": "command", "command": "handsfree-claude-hook", "timeout": 5},
+            ]}]
+        }
+    }
+    paths.claude_settings_path().write_text(json.dumps(stale), encoding="utf-8")
+    cli_mod.main(["uninstall-hooks"])
+    data = json.loads(paths.claude_settings_path().read_text(encoding="utf-8"))
+    cmds = [h["command"] for e in data["hooks"]["PreToolUse"] for h in e["hooks"]]
+    assert "some-other-hook" in cmds
+    assert "handsfree-claude-hook" not in cmds
