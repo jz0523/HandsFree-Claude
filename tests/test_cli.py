@@ -16,6 +16,9 @@ def tmp_home(tmp_path, monkeypatch):
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
     monkeypatch.setattr(paths, "claude_settings_path", lambda: claude_dir / "settings.json")
+    # Force bare-name registration so tests don't depend on whether the hook
+    # console script is currently installed on PATH in the test environment.
+    monkeypatch.setattr(cli_mod, "_resolve_hook_command", lambda: cli_mod.HOOK_NAME)
     return tmp_path
 
 

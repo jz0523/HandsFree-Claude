@@ -2,14 +2,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from typing import Optional, Sequence
 
 from handsfree_claude import paths, settings_installer, state as state_mod
 
-HOOK_COMMAND = "handsfree-claude-hook"
+HOOK_NAME = "handsfree-claude-hook"
 HOOK_EVENTS = ("PreToolUse", "Stop")
 HOOK_TIMEOUT_SECONDS = 5
+
+
+def _resolve_hook_command() -> str:
+    """Return the command string to register in Claude's settings.json.
+
+    Prefer the absolute path to the installed console script so that Claude
+    Code finds it regardless of the PATH its process inherits (on Windows,
+    user-site Scripts directories are often not on system PATH)."""
+    resolved = shutil.which(HOOK_NAME)
+    return resolved if resolved else HOOK_NAME
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -54,23 +65,27 @@ def _launch_ui() -> None:
 
 def _cmd_install_hooks() -> int:
     settings_path = paths.claude_settings_path()
+    command = _resolve_hook_command()
     for event in HOOK_EVENTS:
         settings_installer.install_hook(
             settings_path,
-            HOOK_COMMAND,
+            command,
             event_name=event,
             timeout_seconds=HOOK_TIMEOUT_SECONDS,
         )
-    print(f"Installed hooks in {settings_path}")
+    print(f"Installed hooks in {settings_path} (command: {command})")
     return 0
 
 
 def _cmd_uninstall_hooks() -> int:
     settings_path = paths.claude_settings_path()
-    for event in HOOK_EVENTS:
-        settings_installer.uninstall_hook(
-            settings_path, HOOK_COMMAND, event_name=event
-        )
+    # Remove both the bare name and the absolute-path form, so this works
+    # whether hooks were installed by an older version of us or the current one.
+    for command in {HOOK_NAME, _resolve_hook_command()}:
+        for event in HOOK_EVENTS:
+            settings_installer.uninstall_hook(
+                settings_path, command, event_name=event
+            )
     print(f"Removed hooks from {settings_path}")
     return 0
 
@@ -97,10 +112,20 @@ def _hooks_installed(settings_path) -> bool:
         return False
     for event in HOOK_EVENTS:
         entries = data.get("hooks", {}).get(event, [])
-        commands = [h.get("command") for e in entries for h in e.get("hooks", [])]
-        if HOOK_COMMAND not in commands:
+        commands = [h.get("command") or "" for e in entries for h in e.get("hooks", [])]
+        # Match either the bare name or any absolute path whose final component
+        # resolves to our hook (Windows adds a .exe suffix via the console-script shim).
+        if not any(_command_matches_hook(c) for c in commands):
             return False
     return True
+
+
+def _command_matches_hook(command: str) -> bool:
+    if command == HOOK_NAME:
+        return True
+    from pathlib import Path as _Path
+    stem = _Path(command).stem.lower() if command else ""
+    return stem == HOOK_NAME
 
 
 if __name__ == "__main__":
