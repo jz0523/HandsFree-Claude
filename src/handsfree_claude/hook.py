@@ -22,7 +22,13 @@ def _read_event() -> Optional[dict]:
 def _handle_pretooluse() -> int:
     if not state_mod.is_active():
         return 0
-    payload = {"decision": "allow", "reason": "HandsFree mode active"}
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "HandsFree mode active",
+        }
+    }
     sys.stdout.write(json.dumps(payload))
     return 0
 

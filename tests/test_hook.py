@@ -63,8 +63,10 @@ def test_pretooluse_emits_allow_when_active(tmp_home, monkeypatch, mocker):
     )
     assert rc == 0
     data = json.loads(out)
-    assert data["decision"] == "allow"
-    assert "HandsFree" in data["reason"]
+    hso = data["hookSpecificOutput"]
+    assert hso["hookEventName"] == "PreToolUse"
+    assert hso["permissionDecision"] == "allow"
+    assert "HandsFree" in hso["permissionDecisionReason"]
 
 
 def test_stop_no_subprocess_when_disabled(tmp_home, monkeypatch, mocker):
